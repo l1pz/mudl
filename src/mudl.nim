@@ -1,4 +1,5 @@
 import jester
+
 import htmlgen
 import strutils
 import uri
@@ -7,18 +8,28 @@ import strformat
 import httpclient
 import json
 import osproc
+import os
 
-# TODO: use self-written deezer downloader
+# TODO: use self-written downloaders
 
-proc albumSearchQuery(artist, album: string): string =
-  &"https://api.deezer.com/search/album?q=artist:\"{artist.encodeUrl}\"%20album:\"{album.encodeUrl}\""
+proc deezerSearchAlbum(artist, album: string): string =
+  let url = &"https://api.deezer.com/search/album?q=artist:\"{artist.encodeUrl}\"%20album:\"{album.encodeUrl}\""
+  let client = newHttpClient()
+  let searchResult = parseJson client.getContent(url)
+  if searchResult["data"].len > 0:
+    return $searchResult["data"][0]["link"]
+  
   
 
-proc download(artist: string = "metallica", album: string = "ride the lightning") =
-  let client = newHttpClient()
-  let result = parseJson client.getContent(albumSearchQuery(artist, album))
-  if result["data"].len > 0:
-    let link = result["data"][0]["link"]
+proc download(artist: string = "metallica", album: string = "ride the lightning", path = getCurrentDir()) =
+  if execCmd("which deemix") != 0:
+    quit("Please install deemix!")
+  let url = deezerSearchAlbum(artist, album)
+  if url != "":
+    #let process = startProcess("deemix", workingDir = path, args = [&"--local", &"{url}"], options={poUsePath})
+    echo url
+  else:
+    quit("Couldn't found this album on Deezer.")
 
 proc server() =
   routes:
