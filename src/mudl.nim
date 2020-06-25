@@ -11,6 +11,7 @@ import json
 import osproc
 import os
 import streams
+import strformat
 
 # TODO: use self-written downloaders
 
@@ -23,36 +24,55 @@ proc deezerSearchAlbum(artist, album: string): string =
     return searchResult["data"][0]["link"].to(string)
 
 proc deezerNumberOfTracks(url: string): int = 
-  echo url
   let client = newHttpClient()
   let apiResult = parseJson client.getContent(url.replace("www.", "api."))
   client.close()
   return apiResult["nb_tracks"].to(int)
-  
-  
 
-proc download(artist: string = "metallica", album: string = "ride the lightning", path = getCurrentDir()) =
-  if execCmd("which deemix") != 0:
-    quit("Please install deemix!")
+proc deezerDownload(url, path: string): string =
+  let nTracks = deezerNumberOfTracks(url)
+
+  let process = startProcess("deemix", workingDir = path, args = [&"--local", &"{url}"], options={poUsePath, poStdErrToStdOut})
+  let output = process.outputStream
+  var line: string
+  
+  echo "Starting download!"
+  var bar = newProgressBar(nTracks)
+  bar.start()
+
+  while process.peekExitCode == -1:
+    if output.readLine(line):
+      if result == "":
+        result = line
+        result.removePrefix("INFO:deemix:Using a local download folder: ")
+      if line.contains("Track download completed"):
+        bar.increment()
+  
+  bar.finish()
+  process.close()
+  echo &"Finished download! - {nTracks} downloaded"
+
+proc deezerCleanupDirs(directoryName, path: string) =
+  let absPath = if path.isAbsolute: path else: path.absolutePath
+  for file in walkDir(absPath / directoryName):
+    let fileNewPath = absPath / file.path.splitPath.tail
+    if file.kind == pcDir:
+      removeDir(fileNewPath)
+      moveDir(file.path, fileNewPath)
+  removeDir(absPath / directoryName)
+
+proc download(artist: string, album: string, path = getCurrentDir()) =
+  if execCmdEx("which deemix").exitCode != 0:
+    echo("Please install deemix!")
+    return
   let url = deezerSearchAlbum(artist, album)
   if url != "":
-    let nTracks = deezerNumberOfTracks(url)
-    var bar = newProgressBar(nTracks)
-    bar.start()
-    let process = startProcess("deemix", workingDir = path, args = [&"", &"{url}"], options={poUsePath, poStdErrToStdOut})
-    let output = process.outputStream
-    var line: string
-    while true:
-      if output.readLine(line):
-        if line.contains("Track download completed"):
-          bar.increment
-      else:
-        if process.peekExitCode != -1: break
-    process.close
-    bar.finish()
-
+    let directoryName = deezerDownload(url, path)
+    deezerCleanupDirs(directoryName, path)
+      
   else:
-    quit("Couldn't found this album on Deezer.")
+    echo("Couldn't found this album on Deezer.")
+    return
 
 proc server() =
   routes:
