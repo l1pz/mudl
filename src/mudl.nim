@@ -1,4 +1,5 @@
 import jester
+import progress
 
 import htmlgen
 import strutils
@@ -9,6 +10,7 @@ import httpclient
 import json
 import osproc
 import os
+import streams
 
 # TODO: use self-written downloaders
 
@@ -16,8 +18,16 @@ proc deezerSearchAlbum(artist, album: string): string =
   let url = &"https://api.deezer.com/search/album?q=artist:\"{artist.encodeUrl}\"%20album:\"{album.encodeUrl}\""
   let client = newHttpClient()
   let searchResult = parseJson client.getContent(url)
+  client.close()
   if searchResult["data"].len > 0:
-    return $searchResult["data"][0]["link"]
+    return searchResult["data"][0]["link"].to(string)
+
+proc deezerNumberOfTracks(url: string): int = 
+  echo url
+  let client = newHttpClient()
+  let apiResult = parseJson client.getContent(url.replace("www.", "api."))
+  client.close()
+  return apiResult["nb_tracks"].to(int)
   
   
 
@@ -26,8 +36,21 @@ proc download(artist: string = "metallica", album: string = "ride the lightning"
     quit("Please install deemix!")
   let url = deezerSearchAlbum(artist, album)
   if url != "":
-    #let process = startProcess("deemix", workingDir = path, args = [&"--local", &"{url}"], options={poUsePath})
-    echo url
+    let nTracks = deezerNumberOfTracks(url)
+    var bar = newProgressBar(nTracks)
+    bar.start()
+    let process = startProcess("deemix", workingDir = path, args = [&"", &"{url}"], options={poUsePath, poStdErrToStdOut})
+    let output = process.outputStream
+    var line: string
+    while true:
+      if output.readLine(line):
+        if line.contains("Track download completed"):
+          bar.increment
+      else:
+        if process.peekExitCode != -1: break
+    process.close
+    bar.finish()
+
   else:
     quit("Couldn't found this album on Deezer.")
 
